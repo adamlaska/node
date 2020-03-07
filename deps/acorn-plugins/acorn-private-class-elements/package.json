@@ -38,8 +38,8 @@
   "deprecated": false,
   "description": "Helpers for supporting private class methods and fields in acorn",
   "devDependencies": {
-    "acorn": "^6.1.0",
-    "eslint": "^5.13.0",
+    "acorn": "^7.1.1",
+    "eslint": "^6.0.0",
     "eslint-plugin-node": "^8.0.1"
   },
   "engines": {

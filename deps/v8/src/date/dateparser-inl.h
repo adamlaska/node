@@ -13,8 +13,7 @@ namespace v8 {
 namespace internal {
 
 template <typename Char>
-bool DateParser::Parse(Isolate* isolate, Vector<Char> str, FixedArray out) {
-  DCHECK(out.length() >= OUTPUT_SIZE);
+bool DateParser::Parse(Isolate* isolate, base::Vector<Char> str, double* out) {
   InputReader<Char> in(str);
   DateStringTokenizer<Char> scanner(&in);
   TimeZoneComposer tz;
@@ -95,9 +94,9 @@ bool DateParser::Parse(Isolate* isolate, Vector<Char> str, FixedArray out) {
       } else if (scanner.SkipSymbol('.') && time.IsExpecting(n)) {
         time.Add(n);
         if (!scanner.Peek().IsNumber()) return false;
-        int n = ReadMilliseconds(scanner.Next());
-        if (n < 0) return false;
-        time.AddFinal(n);
+        int ms = ReadMilliseconds(scanner.Next());
+        if (ms < 0) return false;
+        time.AddFinal(ms);
       } else if (tz.IsExpecting(n)) {
         tz.SetAbsoluteMinute(n);
       } else if (time.IsExpecting(n)) {
@@ -139,9 +138,9 @@ bool DateParser::Parse(Isolate* isolate, Vector<Char> str, FixedArray out) {
       int n = 0;
       int length = 0;
       if (scanner.Peek().IsNumber()) {
-        DateToken token = scanner.Next();
-        length = token.length();
-        n = token.number();
+        DateToken next_token = scanner.Next();
+        length = next_token.length();
+        n = next_token.number();
       }
       has_read_number = true;
 

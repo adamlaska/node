@@ -13,11 +13,11 @@
 namespace v8 {
 namespace internal {
 
-class VectorSlotPair;
 
 namespace compiler {
 
 class CompilationDependencies;
+struct FeedbackSource;
 class JSGraph;
 class JSHeapBroker;
 class Node;
@@ -34,7 +34,7 @@ class Node;
 // reliable).
 class MapInference {
  public:
-  MapInference(JSHeapBroker* broker, Node* object, Node* effect);
+  MapInference(JSHeapBroker* broker, Node* object, Effect effect);
 
   // The destructor checks that the information has been made reliable (if
   // necessary) and force-crashes if not.
@@ -52,9 +52,10 @@ class MapInference {
 
   // These queries require a guard. (Even instance types are generally not
   // reliable because of how the representation of a string can change.)
-  V8_WARN_UNUSED_RESULT MapHandles const& GetMaps();
+  V8_WARN_UNUSED_RESULT ZoneVector<MapRef> const& GetMaps();
   V8_WARN_UNUSED_RESULT bool AllOfInstanceTypes(
       std::function<bool(InstanceType)> f);
+  V8_WARN_UNUSED_RESULT bool Is(const MapRef& expected_map);
 
   // These methods provide a guard.
   //
@@ -66,11 +67,12 @@ class MapInference {
   // checks. Does nothing if maps were already reliable. Returns true iff
   // dependencies were taken.
   bool RelyOnMapsPreferStability(CompilationDependencies* dependencies,
-                                 JSGraph* jsgraph, Node** effect, Node* control,
-                                 const VectorSlotPair& feedback);
+                                 JSGraph* jsgraph, Effect* effect,
+                                 Control control,
+                                 const FeedbackSource& feedback);
   // Inserts map checks even if maps were already reliable.
-  void InsertMapChecks(JSGraph* jsgraph, Node** effect, Node* control,
-                       const VectorSlotPair& feedback);
+  void InsertMapChecks(JSGraph* jsgraph, Effect* effect, Control control,
+                       const FeedbackSource& feedback);
 
   // Internally marks the maps as reliable (thus bypassing the safety check) and
   // returns the NoChange reduction. USE THIS ONLY WHEN RETURNING, e.g.:
@@ -81,7 +83,7 @@ class MapInference {
   JSHeapBroker* const broker_;
   Node* const object_;
 
-  MapHandles maps_;
+  ZoneVector<MapRef> maps_;
   enum {
     kReliableOrGuarded,
     kUnreliableDontNeedGuard,
@@ -97,8 +99,8 @@ class MapInference {
   V8_WARN_UNUSED_RESULT bool AnyOfInstanceTypesUnsafe(
       std::function<bool(InstanceType)> f) const;
   V8_WARN_UNUSED_RESULT bool RelyOnMapsHelper(
-      CompilationDependencies* dependencies, JSGraph* jsgraph, Node** effect,
-      Node* control, const VectorSlotPair& feedback);
+      CompilationDependencies* dependencies, JSGraph* jsgraph, Effect* effect,
+      Control control, const FeedbackSource& feedback);
 };
 
 }  // namespace compiler

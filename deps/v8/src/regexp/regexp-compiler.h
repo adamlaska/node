@@ -8,6 +8,8 @@
 #include <bitset>
 
 #include "src/base/small-vector.h"
+#include "src/base/strings.h"
+#include "src/regexp/regexp-flags.h"
 #include "src/regexp/regexp-nodes.h"
 
 namespace v8 {
@@ -21,7 +23,7 @@ namespace regexp_compiler_constants {
 // The '2' variant is has inclusive from and exclusive to.
 // This covers \s as defined in ECMA-262 5.1, 15.10.2.12,
 // which include WhiteSpace (7.2) or LineTerminator (7.3) values.
-constexpr uc32 kRangeEndMarker = 0x110000;
+constexpr base::uc32 kRangeEndMarker = 0x110000;
 constexpr int kSpaceRanges[] = {
     '\t',   '\r' + 1, ' ',    ' ' + 1, 0x00A0, 0x00A1, 0x1680,
     0x1681, 0x2000,   0x200B, 0x2028,  0x202A, 0x202F, 0x2030,
@@ -48,34 +50,10 @@ constexpr int kPatternTooShortForBoyerMoore = 2;
 
 }  // namespace regexp_compiler_constants
 
-inline bool IgnoreCase(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kIgnoreCase) != 0;
-}
-
-inline bool IsUnicode(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kUnicode) != 0;
-}
-
-inline bool IsSticky(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kSticky) != 0;
-}
-
-inline bool IsGlobal(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kGlobal) != 0;
-}
-
-inline bool DotAll(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kDotAll) != 0;
-}
-
-inline bool Multiline(JSRegExp::Flags flags) {
-  return (flags & JSRegExp::kMultiline) != 0;
-}
-
-inline bool NeedsUnicodeCaseEquivalents(JSRegExp::Flags flags) {
+inline bool NeedsUnicodeCaseEquivalents(RegExpFlags flags) {
   // Both unicode and ignore_case flags are set. We need to use ICU to find
   // the closure over case equivalents.
-  return IsUnicode(flags) && IgnoreCase(flags);
+  return IsUnicode(flags) && IsIgnoreCase(flags);
 }
 
 // Details of a quick mask-compare check that can look ahead in the
@@ -96,8 +74,8 @@ class QuickCheckDetails {
   void set_cannot_match() { cannot_match_ = true; }
   struct Position {
     Position() : mask(0), value(0), determines_perfectly(false) {}
-    uc16 mask;
-    uc16 value;
+    base::uc32 mask;
+    base::uc32 value;
     bool determines_perfectly;
   };
   int characters() { return characters_; }
@@ -285,10 +263,11 @@ class Trace {
     void set_cp_offset(int cp_offset) { cp_offset_ = cp_offset; }
   };
 
-  class DeferredSetRegister : public DeferredAction {
+  class DeferredSetRegisterForLoop : public DeferredAction {
    public:
-    DeferredSetRegister(int reg, int value)
-        : DeferredAction(ActionNode::SET_REGISTER, reg), value_(value) {}
+    DeferredSetRegisterForLoop(int reg, int value)
+        : DeferredAction(ActionNode::SET_REGISTER_FOR_LOOP, reg),
+          value_(value) {}
     int value() { return value_; }
 
    private:
@@ -419,45 +398,11 @@ struct PreloadState {
   void init() { eats_at_least_ = kEatsAtLeastNotYetInitialized; }
 };
 
-// Assertion propagation moves information about assertions such as
-// \b to the affected nodes.  For instance, in /.\b./ information must
-// be propagated to the first '.' that whatever follows needs to know
-// if it matched a word or a non-word, and to the second '.' that it
-// has to check if it succeeds a word or non-word.  In this case the
-// result will be something like:
-//
-//   +-------+        +------------+
-//   |   .   |        |      .     |
-//   +-------+  --->  +------------+
-//   | word? |        | check word |
-//   +-------+        +------------+
-class Analysis : public NodeVisitor {
- public:
-  Analysis(Isolate* isolate, bool is_one_byte)
-      : isolate_(isolate), is_one_byte_(is_one_byte), error_message_(nullptr) {}
-  void EnsureAnalyzed(RegExpNode* node);
-
-#define DECLARE_VISIT(Type) void Visit##Type(Type##Node* that) override;
-  FOR_EACH_NODE_TYPE(DECLARE_VISIT)
-#undef DECLARE_VISIT
-  void VisitLoopChoice(LoopChoiceNode* that) override;
-
-  bool has_failed() { return error_message_ != nullptr; }
-  const char* error_message() {
-    DCHECK(error_message_ != nullptr);
-    return error_message_;
-  }
-  void fail(const char* error_message) { error_message_ = error_message; }
-
-  Isolate* isolate() const { return isolate_; }
-
- private:
-  Isolate* isolate_;
-  bool is_one_byte_;
-  const char* error_message_;
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(Analysis);
-};
+// Analysis performs assertion propagation and computes eats_at_least_ values.
+// See the comments on AssertionPropagator and EatsAtLeastPropagator for more
+// details.
+RegExpError AnalyzeRegExp(Isolate* isolate, bool is_one_byte, RegExpFlags flags,
+                          RegExpNode* node);
 
 class FrequencyCollator {
  public:
@@ -507,7 +452,7 @@ class FrequencyCollator {
 class RegExpCompiler {
  public:
   RegExpCompiler(Isolate* isolate, Zone* zone, int capture_count,
-                 bool is_one_byte);
+                 RegExpFlags flags, bool is_one_byte);
 
   int AllocateRegister() {
     if (next_register_ >= RegExpMacroAssembler::kMaxRegister) {
@@ -534,19 +479,18 @@ class RegExpCompiler {
   }
 
   struct CompilationResult final {
-    explicit CompilationResult(const char* error_message)
-        : error_message(error_message) {}
-    CompilationResult(Object code, int registers)
+    explicit CompilationResult(RegExpError err) : error(err) {}
+    CompilationResult(Handle<Object> code, int registers)
         : code(code), num_registers(registers) {}
 
     static CompilationResult RegExpTooBig() {
-      return CompilationResult("RegExp too big");
+      return CompilationResult(RegExpError::kTooLarge);
     }
 
-    bool Succeeded() const { return error_message == nullptr; }
+    bool Succeeded() const { return error == RegExpError::kNone; }
 
-    const char* const error_message = nullptr;
-    Object code;
+    const RegExpError error = RegExpError::kNone;
+    Handle<Object> code;
     int num_registers = 0;
   };
 
@@ -554,11 +498,18 @@ class RegExpCompiler {
                              RegExpNode* start, int capture_count,
                              Handle<String> pattern);
 
+  // Preprocessing is the final step of node creation before analysis
+  // and assembly. It includes:
+  // - Wrapping the body of the regexp in capture 0.
+  // - Inserting the implicit .* before/after the regexp if necessary.
+  // - If the input is a one-byte string, filtering out nodes that can't match.
+  // - Fixing up regexp matches that start within a surrogate pair.
+  RegExpNode* PreprocessRegExp(RegExpCompileData* data, RegExpFlags flags,
+                               bool is_one_byte);
+
   // If the regexp matching starts within a surrogate pair, step back to the
   // lead surrogate and start matching from there.
-  static RegExpNode* OptionallyStepBackToLeadSurrogate(RegExpCompiler* compiler,
-                                                       RegExpNode* on_success,
-                                                       JSRegExp::Flags flags);
+  RegExpNode* OptionallyStepBackToLeadSurrogate(RegExpNode* on_success);
 
   inline void AddWork(RegExpNode* node) {
     if (!node->on_work_list() && !node->label()->is_bound()) {
@@ -579,6 +530,8 @@ class RegExpCompiler {
   inline void IncrementRecursionDepth() { recursion_depth_++; }
   inline void DecrementRecursionDepth() { recursion_depth_--; }
 
+  RegExpFlags flags() const { return flags_; }
+
   void SetRegExpTooBig() { reg_exp_too_big_ = true; }
 
   inline bool one_byte() { return one_byte_; }
@@ -597,6 +550,18 @@ class RegExpCompiler {
     current_expansion_factor_ = value;
   }
 
+  // The recursive nature of ToNode node generation means we may run into stack
+  // overflow issues. We introduce periodic checks to detect these, and the
+  // tick counter helps limit overhead of these checks.
+  // TODO(jgruber): This is super hacky and should be replaced by an abort
+  // mechanism or iterative node generation.
+  void ToNodeMaybeCheckForStackOverflow() {
+    if ((to_node_overflow_check_ticks_++ % 16 == 0)) {
+      ToNodeCheckForStackOverflow();
+    }
+  }
+  void ToNodeCheckForStackOverflow();
+
   Isolate* isolate() const { return isolate_; }
   Zone* zone() const { return zone_; }
 
@@ -607,12 +572,14 @@ class RegExpCompiler {
   int next_register_;
   int unicode_lookaround_stack_register_;
   int unicode_lookaround_position_register_;
-  std::vector<RegExpNode*>* work_list_;
+  ZoneVector<RegExpNode*>* work_list_;
   int recursion_depth_;
+  const RegExpFlags flags_;
   RegExpMacroAssembler* macro_assembler_;
   bool one_byte_;
   bool reg_exp_too_big_;
   bool limiting_recursion_;
+  int to_node_overflow_check_ticks_ = 0;
   bool optimize_;
   bool read_backward_;
   int current_expansion_factor_;

@@ -7,7 +7,7 @@ const assert = require('assert');
 // basic
 {
   // Find it on Readable.prototype
-  assert(Readable.prototype.hasOwnProperty('readableEnded'));
+  assert(Object.hasOwn(Readable.prototype, 'readableEnded'));
 }
 
 // event
@@ -30,4 +30,17 @@ const assert = require('assert');
   readable.on('data', common.mustCall(() => {
     assert.strictEqual(readable.readableEnded, false);
   }));
+}
+
+// Verifies no `error` triggered on multiple .push(null) invocations
+{
+  const readable = new Readable();
+
+  readable.on('readable', () => { readable.read(); });
+  readable.on('error', common.mustNotCall());
+  readable.on('end', common.mustCall());
+
+  readable.push('a');
+  readable.push(null);
+  readable.push(null);
 }

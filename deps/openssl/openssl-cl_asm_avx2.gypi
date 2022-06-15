@@ -5,7 +5,7 @@
     }, 'target_arch=="ppc" and OS=="linux"', {
       'includes': ['config/archs/linux-ppc/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="ppc64" and OS=="aix"', {
-      'includes': ['config/archs/aix64-gcc/asm_avx2/openssl-cl.gypi'],
+      'includes': ['config/archs/aix64-gcc-as/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="ppc64" and OS=="linux" and node_byteorder =="little"', {
       'includes': ['config/archs/linux-ppc64le/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="ppc64" and OS=="linux"', {
@@ -33,6 +33,8 @@
       'includes': ['config/archs/BSD-x86_64/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="x64" and OS=="mac"', {
       'includes': ['config/archs/darwin64-x86_64-cc/asm_avx2/openssl-cl.gypi'],
+    }, 'target_arch=="arm64" and OS=="mac"', {
+      'includes': ['config/archs/darwin64-arm64-cc/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="x64" and OS=="solaris"', {
       'includes': ['config/archs/solaris64-x86_64-gcc/asm_avx2/openssl-cl.gypi'],
     }, 'target_arch=="x64" and OS=="win"', {

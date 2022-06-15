@@ -19,19 +19,39 @@ std::string ErrorPrefixFor(TorqueMessage::Kind kind) {
 }
 
 int WrappedMain(int argc, const char** argv) {
-  std::string output_directory;
-  std::string v8_root;
+  TorqueCompilerOptions options;
+  options.collect_language_server_data = false;
+  options.force_assert_statements = false;
+
   std::vector<std::string> files;
 
   for (int i = 1; i < argc; ++i) {
     // Check for options
-    if (std::string(argv[i]) == "-o") {
-      output_directory = argv[++i];
-    } else if (std::string(argv[i]) == "-v8-root") {
-      v8_root = std::string(argv[++i]);
+    std::string argument(argv[i]);
+    if (argument == "-o") {
+      options.output_directory = argv[++i];
+    } else if (argument == "-v8-root") {
+      options.v8_root = std::string(argv[++i]);
+    } else if (argument == "-m32") {
+#ifdef V8_COMPRESS_POINTERS
+      std::cerr << "Pointer compression is incompatible with -m32.\n";
+      base::OS::Abort();
+#else
+      options.force_32bit_output = true;
+#endif
+    } else if (argument == "-annotate-ir") {
+      options.annotate_ir = true;
+    } else if (argument == "-strip-v8-root") {
+      options.strip_v8_root = true;
     } else {
+      // Strip the v8-root in case it is a prefix of the file path itself.
+      // This is used when building in Google3.
+      if (options.strip_v8_root &&
+          argument.substr(0, options.v8_root.size()) == options.v8_root) {
+        argument = argument.substr(options.v8_root.size() + 1);
+      }
       // Otherwise it's a .tq file. Remember it for compilation.
-      files.emplace_back(argv[i]);
+      files.emplace_back(std::move(argument));
       if (!StringEndsWith(files.back(), ".tq")) {
         std::cerr << "Unexpected command-line argument \"" << files.back()
                   << "\", expected a .tq file.\n";
@@ -39,12 +59,6 @@ int WrappedMain(int argc, const char** argv) {
       }
     }
   }
-
-  TorqueCompilerOptions options;
-  options.output_directory = std::move(output_directory);
-  options.v8_root = std::move(v8_root);
-  options.collect_language_server_data = false;
-  options.force_assert_statements = false;
 
   TorqueCompilerResult result = CompileTorque(files, options);
 
@@ -54,7 +68,7 @@ int WrappedMain(int argc, const char** argv) {
 
   for (const TorqueMessage& message : result.messages) {
     if (message.position) {
-      std::cerr << *message.position << ": ";
+      std::cerr << PositionAsString(*message.position) << ": ";
     }
 
     std::cerr << ErrorPrefixFor(message.kind) << ": " << message.message

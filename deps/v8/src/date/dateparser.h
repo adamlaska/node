@@ -5,6 +5,7 @@
 #ifndef V8_DATE_DATEPARSER_H_
 #define V8_DATE_DATEPARSER_H_
 
+#include "src/base/vector.h"
 #include "src/strings/char-predicates.h"
 #include "src/utils/allocation.h"
 
@@ -13,6 +14,18 @@ namespace internal {
 
 class DateParser : public AllStatic {
  public:
+  enum {
+    YEAR,
+    MONTH,
+    DAY,
+    HOUR,
+    MINUTE,
+    SECOND,
+    MILLISECOND,
+    UTC_OFFSET,
+    OUTPUT_SIZE
+  };
+
   // Parse the string as a date. If parsing succeeds, return true after
   // filling out the output array as follows (all integers are Smis):
   // [0]: year
@@ -25,19 +38,7 @@ class DateParser : public AllStatic {
   // [7]: UTC offset in seconds, or null value if no timezone specified
   // If parsing fails, return false (content of output array is not defined).
   template <typename Char>
-  static bool Parse(Isolate* isolate, Vector<Char> str, FixedArray output);
-
-  enum {
-    YEAR,
-    MONTH,
-    DAY,
-    HOUR,
-    MINUTE,
-    SECOND,
-    MILLISECOND,
-    UTC_OFFSET,
-    OUTPUT_SIZE
-  };
+  static bool Parse(Isolate* isolate, base::Vector<Char> str, double* output);
 
  private:
   // Range testing
@@ -56,7 +57,9 @@ class DateParser : public AllStatic {
   template <typename Char>
   class InputReader {
    public:
-    explicit InputReader(Vector<Char> s) : index_(0), buffer_(s) { Next(); }
+    explicit InputReader(base::Vector<Char> s) : index_(0), buffer_(s) {
+      Next();
+    }
 
     int position() { return index_; }
 
@@ -72,6 +75,9 @@ class DateParser : public AllStatic {
     int ReadUnsignedNumeral() {
       int n = 0;
       int i = 0;
+      // First, skip leading zeros
+      while (ch_ == '0') Next();
+      // And then, do the conversion
       while (IsAsciiDigit()) {
         if (i < kMaxSignificantDigits) n = n * 10 + ch_ - '0';
         i++;
@@ -116,7 +122,7 @@ class DateParser : public AllStatic {
 
    private:
     int index_;
-    Vector<Char> buffer_;
+    base::Vector<Char> buffer_;
     uint32_t ch_;
   };
 
@@ -274,7 +280,7 @@ class DateParser : public AllStatic {
       return hour_ != kNone && minute_ == kNone && TimeComposer::IsMinute(n);
     }
     bool IsUTC() const { return hour_ == 0 && minute_ == 0; }
-    bool Write(FixedArray output);
+    bool Write(double* output);
     bool IsEmpty() { return hour_ == kNone; }
 
    private:
@@ -300,7 +306,7 @@ class DateParser : public AllStatic {
       return true;
     }
     void SetHourOffset(int n) { hour_offset_ = n; }
-    bool Write(FixedArray output);
+    bool Write(double* output);
 
     static bool IsMinute(int x) { return Between(x, 0, 59); }
     static bool IsHour(int x) { return Between(x, 0, 23); }
@@ -329,7 +335,7 @@ class DateParser : public AllStatic {
       return false;
     }
     void SetNamedMonth(int n) { named_month_ = n; }
-    bool Write(FixedArray output);
+    bool Write(double* output);
     void set_iso_date() { is_iso_date_ = true; }
     static bool IsMonth(int x) { return Between(x, 1, 12); }
     static bool IsDay(int x) { return Between(x, 1, 31); }
